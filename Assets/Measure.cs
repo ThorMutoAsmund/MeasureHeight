@@ -44,6 +44,7 @@ public class Measure : MonoBehaviour
                     miniBall.transform.localScale = 0.01f * Vector3.one;
                     miniBall.transform.position = handPosition;
                     miniBall.transform.parent = this.miniBallContainer.transform;
+                    miniBall.name = $"MiniBall {this.positions.Count}";
                     this.romTestMath.AddData(handPosition);
                 }
             }
@@ -111,32 +112,33 @@ public class Measure : MonoBehaviour
         var centers = new List<Vector3>();
         Vector3[] v = new Vector3[4];
 
+        var names = new List<string>();
+        int imb = 0;
+        foreach (var p in positions)
+        {
+            names.Add($"MiniBall {++imb}");
+        }
+
         while (this.positions.Count >= 4)
         {
             // Get 4 random points
+            var s = "";
             for (int i = 0; i < 4; ++i)
             {
                 var r = Random.Range(0, this.positions.Count);
                 v[i] = this.positions[r];
+                s += $"{names[r]} ";
                 this.positions.RemoveAt(r);
+                names.RemoveAt(r);
             }
 
+
             var calculatedCenter = SphereCenterFrom4Points(v[0], v[1], v[2], v[3]);
+            Debug.Log($"Created center at {calculatedCenter.x}, {calculatedCenter.y}, {calculatedCenter.z} from {s}");
             centers.Add(calculatedCenter);
         }
 
-        // Get average
-        var average = Vector3.zero;
-        foreach (var c in centers)
-        {
-            average.x += c.x;
-            average.y += c.y;
-            average.z += c.z;
-        }
-        average.x /= centers.Count();
-        average.y /= centers.Count();
-        average.z /= centers.Count();
-
+        // Exclude outliers
         var center = Vector3.zero;
         var centerPoints = 0;
         foreach (var c in centers)
@@ -146,7 +148,15 @@ public class Measure : MonoBehaviour
             miniCube.transform.position = c;
             miniCube.transform.parent = this.miniBallContainer.transform;
 
-            if (Vector3.Distance(average, c) < 0.2f)
+            var di = 0f;
+            foreach (var d in centers)
+            {
+                di += Vector3.Distance(c, d);
+            }
+            di /= centers.Count;
+            Debug.Log($"D = {di}");
+
+            if (di < 0.5f)
             {
                 center.x += c.x;
                 center.y += c.y;
@@ -172,7 +182,7 @@ public class Measure : MonoBehaviour
 
         if (centerPoints != centers.Count)
         {
-            this.text.text += $"{(centers.Count - centerPoints)} centers skipped\n";
+            this.text.text += $"Removed {(centers.Count - centerPoints)} outliers\n";
         }
 
         return center;
