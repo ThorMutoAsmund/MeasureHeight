@@ -247,6 +247,8 @@ MonoBehaviour:
   redSphere: {fileID: 1427025866}
   greenSphere: {fileID: 791153167}
   blueSphere: {fileID: 1066075818}
+  greenMaterial: {fileID: 2100000, guid: ef8d416972d82e84d97a914df6e2f091, type: 2}
+  redMaterial: {fileID: 2100000, guid: 61c518d0274b64a4a8831e04ca4f5230, type: 2}
 --- !u!4 &266806332
 Transform:
   m_ObjectHideFlags: 0
@@ -389,9 +391,15 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: "Opret setpunkt => tryk index trigger\nForetag m\xE5ling => hold hand trigger,
-    drej arm, slip\nR\xF8d = setpunkt. Gr\xF8n = 4d matrix based. Bl\xE5 = great
-    circle based.\n"
+  m_Text: 'Create set point => press index trigger
+
+    Start sampling => hold hand
+    trigger, move arm, release
+
+    Red = set point. Green = 4d matrix based. Blue
+    = great circle based.
+
+'
 --- !u!222 &472514459
 CanvasRenderer:
   m_ObjectHideFlags: 0

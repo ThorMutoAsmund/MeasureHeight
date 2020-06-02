@@ -13,6 +13,8 @@ public class Measure : MonoBehaviour
     public GameObject redSphere;
     public GameObject greenSphere;
     public GameObject blueSphere;
+    public Material greenMaterial;
+    public Material redMaterial;
 
     private RomTestMath romTestMath;
     private bool measuringSpherical;
@@ -35,7 +37,7 @@ public class Measure : MonoBehaviour
             if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch))
             {
                 var handPosition = this.rightHandAnchor.position;
-                if (this.positions.Count == 0 || Vector3.Distance(handPosition, this.positions[this.positions.Count -1]) > 0.3f)
+                if (this.positions.Count == 0 || Vector3.Distance(handPosition, this.positions[this.positions.Count -1]) > 0.1f)
                 {
                     this.positions.Add(handPosition);
                     var miniBall = GameObject.CreatePrimitive(PrimitiveType.Sphere);
@@ -63,7 +65,7 @@ public class Measure : MonoBehaviour
         }
         if (OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch))
         {
-            this.text.text += "Foretager sfærisk måling\n";
+            this.text.text += "Reading sample points...\n";
             this.measuringSpherical = true;
             this.positions = new List<Vector3>();
             this.romTestMath = new RomTestMath();
@@ -81,28 +83,30 @@ public class Measure : MonoBehaviour
     {
         if (this.positions.Count == 0)
         {
-            this.text.text += "Ingen punkter\n";
+            this.text.text += "No points read\n";
             return;
         }
         if (this.positions.Count < 10)
         {
-            this.text.text += "For få punkter\n";
+            this.text.text += "Too few points\n";
             return;
         }
 
         var center = FindCenterUsingMatrices();
         
-        this.text.text += $"{this.positions.Count} punkter\n"; 
-        this.text.text += $"Beregnet højde (matrix) = {center.y.ToString("0.00")} m\n";
-        this.text.text += $"Beregnet højde (great circle) = {this.romTestMath.ShoulderPosition.y.ToString("0.00")} m\n";
-        this.greenSphere.transform.position = center;
-        this.greenSphere.transform.localScale = 0.05f * Vector3.one;
+        if (center.HasValue)
+        {
+            this.text.text += $"Calculated height (matrix) = {center.Value.y.ToString("0.00")} m\n";
+            this.text.text += $"Calculated height (great circle) = {this.romTestMath.ShoulderPosition.y.ToString("0.00")} m\n";
+            this.greenSphere.transform.position = center.Value;
+            this.greenSphere.transform.localScale = 0.05f * Vector3.one;
 
-        this.blueSphere.transform.position = this.romTestMath.ShoulderPosition;
-        this.blueSphere.transform.localScale = 0.05f * Vector3.one;
+            this.blueSphere.transform.position = this.romTestMath.ShoulderPosition;
+            this.blueSphere.transform.localScale = 0.05f * Vector3.one;
+        }
     }
 
-    private Vector3 FindCenterUsingMatrices()
+    private Vector3? FindCenterUsingMatrices()
     {
         var centers = new List<Vector3>();
         Vector3[] v = new Vector3[4];
@@ -117,21 +121,61 @@ public class Measure : MonoBehaviour
                 this.positions.RemoveAt(r);
             }
 
-            centers.Add(SphereCenterFrom4Points(v[0], v[1], v[2], v[3]));
+            var calculatedCenter = SphereCenterFrom4Points(v[0], v[1], v[2], v[3]);
+            centers.Add(calculatedCenter);
         }
 
-        var center = Vector3.zero;
+        // Get average
+        var average = Vector3.zero;
         foreach (var c in centers)
         {
-            center.x += c.x;
-            center.y += c.y;
-            center.z += c.z;
+            average.x += c.x;
+            average.y += c.y;
+            average.z += c.z;
         }
-        center.x /= centers.Count();
-        center.y /= centers.Count();
-        center.z /= centers.Count();
+        average.x /= centers.Count();
+        average.y /= centers.Count();
+        average.z /= centers.Count();
 
-        return center;
+        var center = Vector3.zero;
+        var centerPoints = 0;
+        foreach (var c in centers)
+        {
+            var miniCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            miniCube.transform.localScale = 0.01f * Vector3.one;
+            miniCube.transform.position = c;
+            miniCube.transform.parent = this.miniBallContainer.transform;
+
+            if (Vector3.Distance(average, c) < 0.2f)
+            {
+                center.x += c.x;
+                center.y += c.y;
+                center.z += c.z;
+                centerPoints++;
+
+                miniCube.GetComponent<Renderer>().material = greenMaterial;
+            }
+            else
+            {
+                miniCube.GetComponent<Renderer>().material = redMaterial;
+            }
+        }
+        center.x /= centerPoints;
+        center.y /= centerPoints;
+        center.z /= centerPoints;
+
+        if (centerPoints < 4)
+        {
+            this.text.text += $"Too few points. Try again\n";
+            return default;
+        }
+
+        if (centerPoints != centers.Count)
+        {
+            this.text.text += $"{(centers.Count - centerPoints)} centers skipped\n";
+        }
+
+        return average;
     }
 
     private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
