@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using Gonio;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -11,15 +12,19 @@ public class Measure : MonoBehaviour
     public Transform rightHandAnchor;
     public GameObject redSphere;
     public GameObject greenSphere;
+    public GameObject blueSphere;
 
+    private RomTestMath romTestMath;
     private bool measuringSpherical;
     private GameObject miniBallContainer;
+    private string startText;
 
     // Start is called before the first frame update
     void Start()
     {
         this.redSphere.transform.localScale = Vector3.zero;
         this.greenSphere.transform.localScale = Vector3.zero;
+        this.startText = this.text.text;
     }
 
     // Update is called once per frame
@@ -29,11 +34,16 @@ public class Measure : MonoBehaviour
         {
             if (OVRInput.Get(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch))
             {
-                this.positions.Add(this.rightHandAnchor.position);
-                var miniBall = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                miniBall.transform.localScale = 0.01f * Vector3.one;
-                miniBall.transform.position = this.rightHandAnchor.position;
-                miniBall.transform.parent = this.miniBallContainer.transform;
+                var handPosition = this.rightHandAnchor.position;
+                if (this.positions.Count == 0 || Vector3.Distance(handPosition, this.positions[this.positions.Count -1]) > 0.3f)
+                {
+                    this.positions.Add(handPosition);
+                    var miniBall = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    miniBall.transform.localScale = 0.01f * Vector3.one;
+                    miniBall.transform.position = handPosition;
+                    miniBall.transform.parent = this.miniBallContainer.transform;
+                    this.romTestMath.AddData(handPosition);
+                }
             }
             else
             {
@@ -49,13 +59,14 @@ public class Measure : MonoBehaviour
         }
         if (OVRInput.GetDown(OVRInput.Button.One, OVRInput.Controller.RTouch))
         {
-            this.text.text = "Målinger\n";
+            this.text.text = startText;
         }
         if (OVRInput.GetDown(OVRInput.Button.PrimaryHandTrigger, OVRInput.Controller.RTouch))
         {
             this.text.text += "Foretager sfærisk måling\n";
             this.measuringSpherical = true;
             this.positions = new List<Vector3>();
+            this.romTestMath = new RomTestMath();
             if (this.miniBallContainer)
             {
                 GameObject.Destroy(this.miniBallContainer);
@@ -82,9 +93,13 @@ public class Measure : MonoBehaviour
         var center = FindCenterUsingMatrices();
         
         this.text.text += $"{this.positions.Count} punkter\n"; 
-        this.text.text += $"Beregnet højde = {center.y.ToString("0.00")} m\n";
+        this.text.text += $"Beregnet højde (matrix) = {center.y.ToString("0.00")} m\n";
+        this.text.text += $"Beregnet højde (great circle) = {this.romTestMath.ShoulderPosition.y.ToString("0.00")} m\n";
         this.greenSphere.transform.position = center;
-        this.greenSphere.transform.localScale = 0.05f * Vector3.one;    
+        this.greenSphere.transform.localScale = 0.05f * Vector3.one;
+
+        this.blueSphere.transform.position = this.romTestMath.ShoulderPosition;
+        this.blueSphere.transform.localScale = 0.05f * Vector3.one;
     }
 
     private Vector3 FindCenterUsingMatrices()
