@@ -175,7 +175,7 @@ public class Measure : MonoBehaviour
             this.text.text += $"{(centers.Count - centerPoints)} centers skipped\n";
         }
 
-        return average;
+        return center;
     }
 
     private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
