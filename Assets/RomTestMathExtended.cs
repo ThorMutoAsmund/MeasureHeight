@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Gonio
@@ -14,22 +15,24 @@ namespace Gonio
         public event Action<Vector3> MeasurementAdded;
         public event Action<string> Message;
         public event Action<Vector3?> CenterCalculated;
-        public event Action<Vector3, bool> CenterCreated;
+        public event Action<Vector3, bool, bool> CenterCreated;
 
         public int minimumNumberOfSamplePoints;
         public float maxDistanceToHead;
         public int minimumNumberOfCentersRequired;
         public int iterations;
         public float maxAcceptedOutlierRatio;
+        public float maxAverageInterdistance;
 
         public RomTestMathExtended(int minimumNumberOfSamplePoints = 10, float maxDistanceToHead = 0.6f,
-            int minimumNumberOfCentersRequired = 4, int iterations = 1000, float maxAcceptedOutlierRatio = 0.2f)
+            int minimumNumberOfCentersRequired = 4, int iterations = 500, float maxAcceptedOutlierRatio = 0.5f, float maxAverageInterdistance = 0.25f)
         {
             this.minimumNumberOfSamplePoints = minimumNumberOfSamplePoints;
             this.maxDistanceToHead = maxDistanceToHead;
             this.minimumNumberOfCentersRequired = minimumNumberOfCentersRequired;
             this.iterations = iterations;
             this.maxAcceptedOutlierRatio = maxAcceptedOutlierRatio;
+            this.maxAverageInterdistance = maxAverageInterdistance;
         }
 
         public void AddData(Vector3 handPosition)
@@ -65,20 +68,11 @@ namespace Gonio
         private Vector3? FindCenterUsingMatrices()
         {
             var centers = new List<Vector3>();
-            var centerInfo = new Dictionary<Vector3, string>();
             Vector3[] v = new Vector3[4];
-
-            var names = new List<string>();
-            int imb = 0;
-            foreach (var p in positions)
-            {
-                names.Add($"MiniBall {++imb}");
-            }
 
             while (iterations-- > 0)
             {
                 // Get 4 random points
-                var s = "";
                 var used = new HashSet<int>();
                 for (int i = 0; i < 4; ++i)
                 {
@@ -90,38 +84,61 @@ namespace Gonio
                     while (used.Contains(r));
                     used.Add(r);
                     v[i] = this.positions[r];
-                    s += $"{names[r]} ";
                 }
 
-                float T, D, E, F, G;
-                var c = SphereCenterFrom4Points(v[0], v[1], v[2], v[3], out T, out D, out E, out F, out G);
+                var c = SphereCenterFrom4Points(v[0], v[1], v[2], v[3]);
                 centers.Add(c);
-                centerInfo[c] = $"{c.x}, {c.y}, {c.z} from {s}. T = {T}. D = {D}. E = {E}. F = {F}. G = {G}";
             }
 
             // Approximate center
             var approximateCenter = Camera.main.transform.position;
 
+            // Remove outliers (too far away from head)
             var okCenters = new List<Vector3>();
+            var okCenters2 = new List<Vector3>();
             foreach (var c in centers)
             {
                 var isOutlier = Vector3.Distance(c, approximateCenter) > maxDistanceToHead;
-                if (!isOutlier)
+                if (isOutlier)
+                {
+                    this.CenterCreated(c, true, false);
+                }
+                else
                 {
                     okCenters.Add(c);
                 }
-                this.CenterCreated(c, isOutlier);
             }
-
-            var outliers = centers.Count - okCenters.Count;
-            var outlierRatio = (float)outliers / centers.Count;
-            this.Message?.Invoke($"{centers.Count} points sampled. {outliers} outliers. Outlier ratio {outlierRatio}");
 
             if (okCenters.Count < minimumNumberOfCentersRequired)
             {
                 this.Message?.Invoke($"Measurement not precise enough. Please try again");
                 return default;
             }
+
+            // Remove secondary outliers (too far away from the others)
+            foreach (var c in okCenters)
+            {
+                var dist = 0f;
+                foreach (var d in okCenters.Where(a => a != c))
+                {
+                    dist += Vector3.Distance(c, d);
+                }
+                dist /= (okCenters.Count - 1);
+
+                if (dist > this.maxAverageInterdistance)
+                {
+                    this.CenterCreated(c, true, true);
+                }
+                else
+                {
+                    okCenters2.Add(c);
+                    this.CenterCreated(c, false, false);
+                }
+            }
+                       
+            var outliers = centers.Count - okCenters2.Count;
+            var outlierRatio = (float)outliers / centers.Count;
+            this.Message?.Invoke($"{centers.Count} points sampled. {outliers} outliers. Outlier ratio {outlierRatio}");
 
             if (outlierRatio > maxAcceptedOutlierRatio)
             {
@@ -130,32 +147,31 @@ namespace Gonio
             }
 
             var center = Vector3.zero;
-            foreach (var c in okCenters)
+            foreach (var c in okCenters2)
             {
                 center.x += c.x;
                 center.y += c.y;
                 center.z += c.z;
             }
-            center.x /= okCenters.Count;
-            center.y /= okCenters.Count;
-            center.z /= okCenters.Count;
+            center.x /= okCenters2.Count;
+            center.y /= okCenters2.Count;
+            center.z /= okCenters2.Count;
 
             return center;
         }
 
 
-        private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4,
-    out float T, out float D, out float E, out float F, out float G)
+        private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
         {
             var t1 = -(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
             var t2 = -(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
             var t3 = -(v3.x * v3.x + v3.y * v3.y + v3.z * v3.z);
             var t4 = -(v4.x * v4.x + v4.y * v4.y + v4.z * v4.z);
-            T = Det4(v1.x, v1.y, v1.z, 1f, v2.x, v2.y, v2.z, 1f, v3.x, v3.y, v3.z, 1f, v4.x, v4.y, v4.z, 1f);
-            D = Det4(t1, v1.y, v1.z, 1f, t2, v2.y, v2.z, 1f, t3, v3.y, v3.z, 1f, t4, v4.y, v4.z, 1f) / T;
-            E = Det4(v1.x, t1, v1.z, 1f, v2.x, t2, v2.z, 1f, v3.x, t3, v3.z, 1f, v4.x, t4, v4.z, 1f) / T;
-            F = Det4(v1.x, v1.y, t1, 1f, v2.x, v2.y, t2, 1f, v3.x, v3.y, t3, 1f, v4.x, v4.y, t4, 1f) / T;
-            G = Det4(v1.x, v1.y, v1.z, t1, v2.x, v2.y, v2.z, t2, v3.x, v3.y, v3.z, t3, v4.x, v4.y, v4.z, t4) / T;
+            float T = Det4(v1.x, v1.y, v1.z, 1f, v2.x, v2.y, v2.z, 1f, v3.x, v3.y, v3.z, 1f, v4.x, v4.y, v4.z, 1f);
+            float D = Det4(t1, v1.y, v1.z, 1f, t2, v2.y, v2.z, 1f, t3, v3.y, v3.z, 1f, t4, v4.y, v4.z, 1f) / T;
+            float E = Det4(v1.x, t1, v1.z, 1f, v2.x, t2, v2.z, 1f, v3.x, t3, v3.z, 1f, v4.x, t4, v4.z, 1f) / T;
+            float F = Det4(v1.x, v1.y, t1, 1f, v2.x, v2.y, t2, 1f, v3.x, v3.y, t3, 1f, v4.x, v4.y, t4, 1f) / T;
+            float G = Det4(v1.x, v1.y, v1.z, t1, v2.x, v2.y, v2.z, t2, v3.x, v3.y, v3.z, t3, v4.x, v4.y, v4.z, t4) / T;
 
             return new Vector3(-D / 2f, -E / 2f, -F / 2f);
         }

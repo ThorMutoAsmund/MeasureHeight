@@ -249,6 +249,7 @@ MonoBehaviour:
   blueSphere: {fileID: 1066075818}
   greenMaterial: {fileID: 2100000, guid: ef8d416972d82e84d97a914df6e2f091, type: 2}
   redMaterial: {fileID: 2100000, guid: 61c518d0274b64a4a8831e04ca4f5230, type: 2}
+  yellowMaterial: {fileID: 2100000, guid: fba4dd97ffd7eda48832e52ace8563f4, type: 2}
 --- !u!4 &266806332
 Transform:
   m_ObjectHideFlags: 0

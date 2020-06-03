@@ -15,6 +15,7 @@ public class Measure : MonoBehaviour
     public GameObject blueSphere;
     public Material greenMaterial;
     public Material redMaterial;
+    public Material yellowMaterial;
 
     private RomTestMath romTestMath;
     private RomTestMathExtended romTestMathExtended;
@@ -101,13 +102,13 @@ public class Measure : MonoBehaviour
                     this.greenSphere.transform.localScale = Vector3.zero;
                 }
             };
-            this.romTestMathExtended.CenterCreated += (point, isOutlier) =>
+            this.romTestMathExtended.CenterCreated += (point, isOutlier, isSecondaryOutlier) =>
             {
                 var miniCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                miniCube.transform.localScale = 0.01f * Vector3.one;
+                miniCube.transform.localScale = 0.005f * Vector3.one;
                 miniCube.transform.position = point;
                 miniCube.transform.parent = this.miniBallContainer.transform;
-                miniCube.GetComponent<Renderer>().material = isOutlier ? redMaterial : greenMaterial;
+                miniCube.GetComponent<Renderer>().material = isOutlier ? (isSecondaryOutlier ? yellowMaterial : redMaterial  ) : greenMaterial;
             };
 
             if (this.miniBallContainer)
