@@ -82,14 +82,9 @@ public class Measure : MonoBehaviour
 
     private void FinishMeasurement()
     {
-        if (this.positions.Count == 0)
-        {
-            this.text.text += "No points read\n";
-            return;
-        }
         if (this.positions.Count < 10)
         {
-            this.text.text += "Too few points\n";
+            this.text.text += $"Too few points. Please try again\n";
             return;
         }
 
@@ -97,19 +92,39 @@ public class Measure : MonoBehaviour
         
         if (center.HasValue)
         {
-            this.text.text += $"Calculated height (matrix) = {center.Value.y.ToString("0.00")} m\n";
-            this.text.text += $"Calculated height (great circle) = {this.romTestMath.ShoulderPosition.y.ToString("0.00")} m\n";
+            this.text.text += $"Calculated height (4d matrix) = {center.Value.y.ToString("0.00")} m\n";
             this.greenSphere.transform.position = center.Value;
             this.greenSphere.transform.localScale = 0.05f * Vector3.one;
 
+        }
+        else
+        {
+            this.greenSphere.transform.localScale = Vector3.zero;
+        }
+
+
+        if (this.romTestMath.HasEstimate)
+        {
+            this.text.text += $"Calculated height (3d matrix) = {this.romTestMath.ShoulderPosition.y.ToString("0.00")} m\n";
             this.blueSphere.transform.position = this.romTestMath.ShoulderPosition;
             this.blueSphere.transform.localScale = 0.05f * Vector3.one;
         }
+        else
+        {
+            this.blueSphere.transform.localScale = Vector3.zero;
+        }
+
     }
 
     private Vector3? FindCenterUsingMatrices()
     {
+        var maxDistanceToHead = 0.6f;
+        var minimumNumberOfCentersRequired = 4;
+        var iterations = 1000;
+        var maxAcceptedOutlierRatio = 0.2f;
+
         var centers = new List<Vector3>();
+        var centerInfo = new Dictionary<Vector3,string>();
         Vector3[] v = new Vector3[4];
 
         var names = new List<string>();
@@ -119,87 +134,97 @@ public class Measure : MonoBehaviour
             names.Add($"MiniBall {++imb}");
         }
 
-        while (this.positions.Count >= 4)
+        while (iterations-- > 0)
         {
             // Get 4 random points
             var s = "";
+            var used = new HashSet<int>();
             for (int i = 0; i < 4; ++i)
             {
-                var r = Random.Range(0, this.positions.Count);
+                int r;
+                do
+                {
+                    r = Random.Range(0, this.positions.Count);
+                }
+                while (used.Contains(r));
+                used.Add(r);
                 v[i] = this.positions[r];
                 s += $"{names[r]} ";
-                this.positions.RemoveAt(r);
-                names.RemoveAt(r);
             }
 
-
-            var calculatedCenter = SphereCenterFrom4Points(v[0], v[1], v[2], v[3]);
-            Debug.Log($"Created center at {calculatedCenter.x}, {calculatedCenter.y}, {calculatedCenter.z} from {s}");
-            centers.Add(calculatedCenter);
+            float T, D, E, F, G;
+            var c = SphereCenterFrom4Points(v[0], v[1], v[2], v[3], out T, out D, out E, out F, out G);
+            centers.Add(c);
+            centerInfo[c] = $"{c.x}, {c.y}, {c.z} from {s}. T = {T}. D = {D}. E = {E}. F = {F}. G = {G}";
         }
 
-        // Exclude outliers
-        var center = Vector3.zero;
-        var centerPoints = 0;
+        // Approximate center
+        var approximateCenter = Camera.main.transform.position;
+
+        var okCenters = new List<Vector3>();
         foreach (var c in centers)
-        {
+        { 
             var miniCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             miniCube.transform.localScale = 0.01f * Vector3.one;
             miniCube.transform.position = c;
             miniCube.transform.parent = this.miniBallContainer.transform;
-
-            var di = 0f;
-            foreach (var d in centers)
+            var isOutlier = Vector3.Distance(c, approximateCenter) > maxDistanceToHead;
+            if (!isOutlier)
             {
-                di += Vector3.Distance(c, d);
-            }
-            di /= centers.Count;
-            Debug.Log($"D = {di}");
-
-            if (di < 0.5f)
-            {
-                center.x += c.x;
-                center.y += c.y;
-                center.z += c.z;
-                centerPoints++;
-
+                okCenters.Add(c);
+                //Debug.Log($"Added center at {centerInfo[c]}");
                 miniCube.GetComponent<Renderer>().material = greenMaterial;
             }
             else
             {
+                //Debug.Log($"Skipped outlier at {centerInfo[c]}");
                 miniCube.GetComponent<Renderer>().material = redMaterial;
             }
         }
-        center.x /= centerPoints;
-        center.y /= centerPoints;
-        center.z /= centerPoints;
 
-        if (centerPoints < 4)
+        var outliers = centers.Count - okCenters.Count;
+        var outlierRatio = (float)outliers / centers.Count;
+        this.text.text += $"{centers.Count} points sampled. {outliers} outliers. Outlier ratio {outlierRatio}\n";
+
+        if (okCenters.Count < minimumNumberOfCentersRequired)
         {
-            this.text.text += $"Too few points. Try again\n";
+            this.text.text += $"Measurement not precise enough. Please try again\n";
             return default;
         }
 
-        if (centerPoints != centers.Count)
+        if (outlierRatio > maxAcceptedOutlierRatio)
         {
-            this.text.text += $"Removed {(centers.Count - centerPoints)} outliers\n";
+            this.text.text += $"Measurement not precise enough. Please try again\n";
+            return default;
         }
+
+        var center = Vector3.zero;
+        foreach (var c in okCenters)
+        {
+            center.x += c.x;
+            center.y += c.y;
+            center.z += c.z;
+        }
+        center.x /= okCenters.Count;
+        center.y /= okCenters.Count;
+        center.z /= okCenters.Count;
 
         return center;
     }
 
-    private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
+    private Vector3 SphereCenterFrom4Points(Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4,
+        out float T, out float D, out float E, out float F, out float G)
     {
         var t1 = -(v1.x * v1.x + v1.y * v1.y + v1.z * v1.z);
         var t2 = -(v2.x * v2.x + v2.y * v2.y + v2.z * v2.z);
         var t3 = -(v3.x * v3.x + v3.y * v3.y + v3.z * v3.z);
         var t4 = -(v4.x * v4.x + v4.y * v4.y + v4.z * v4.z);
-        var T = Det4(v1.x, v1.y, v1.z, 1f, v2.x, v2.y, v2.z, 1f, v3.x, v3.y, v3.z, 1f, v4.x, v4.y, v4.z, 1f);
-        var D = Det4(t1, v1.y, v1.z, 1f, t2, v2.y, v2.z, 1f, t3, v3.y, v3.z, 1f, t4, v4.y, v4.z, 1f) / T;
-        var E = Det4(v1.x, t1, v1.z, 1f, v2.x, t2, v2.z, 1f, v3.x, t3, v3.z, 1f, v4.x, t4, v4.z, 1f) / T;
-        var F = Det4(v1.x, v1.y, t1, 1f, v2.x, v2.y, t2, 1f, v3.x, v3.y, t3, 1f, v4.x, v4.y, t4, 1f) / T;
-        var G = Det4(v1.x, v1.y, v1.z, t1, v2.x, v2.y, v2.z, t2, v3.x, v3.y, v3.z, t3, v4.x, v4.y, v4.z, t4) / T;
-        
+        T = Det4(v1.x, v1.y, v1.z, 1f, v2.x, v2.y, v2.z, 1f, v3.x, v3.y, v3.z, 1f, v4.x, v4.y, v4.z, 1f);
+        D = Det4(t1, v1.y, v1.z, 1f, t2, v2.y, v2.z, 1f, t3, v3.y, v3.z, 1f, t4, v4.y, v4.z, 1f) / T;
+        E = Det4(v1.x, t1, v1.z, 1f, v2.x, t2, v2.z, 1f, v3.x, t3, v3.z, 1f, v4.x, t4, v4.z, 1f) / T;
+        F = Det4(v1.x, v1.y, t1, 1f, v2.x, v2.y, t2, 1f, v3.x, v3.y, t3, 1f, v4.x, v4.y, t4, 1f) / T;
+        G = Det4(v1.x, v1.y, v1.z, t1, v2.x, v2.y, v2.z, t2, v3.x, v3.y, v3.z, t3, v4.x, v4.y, v4.z, t4) / T;
+
         return new Vector3(-D/2f, -E/2f, -F/2f);
     }
 
